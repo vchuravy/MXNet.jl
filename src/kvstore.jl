@@ -107,9 +107,9 @@ end
 # extra handle parameter of the API to pass the updater object around. Fix this when someday
 # full closure cfunction is supported in Julia.
 function _kvstore_update_wrapper(index::Cint, nd_recv::MX_handle, nd_local::MX_handle, updater::Ptr{Void})
-  x = unsafe_pointer_to_objref(updater)
   updater_func = unsafe_pointer_to_objref(updater) :: Function
-  updater_func(Int(index), NDArray(MX_NDArrayHandle(nd_recv)), NDArray(MX_NDArrayHandle(nd_local)))
+  cb_packaged = Base.SingleAsyncWork(_ -> updater_func(Int(index), NDArray(MX_NDArrayHandle(nd_recv)), NDArray(MX_NDArrayHandle(nd_local))))
+  ccall(:uv_async_send, Void, (Ptr{Void},), cb_packaged.handle)
   return nothing
 end
 function set_updater(self :: KVStore, updater :: Function)
