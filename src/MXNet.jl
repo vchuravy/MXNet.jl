@@ -37,6 +37,7 @@ include("kvstore.jl")
 include("callback.jl")
 include("model.jl")
 
+include("nativeops.jl")
 include("visualize.jl")
 
 include("nn-factory.jl")
