@@ -16,6 +16,10 @@ immutable NativeOpInfo
   p_list_arguments :: Ptr{Void}
 
   function NativeOpInfo(forward :: Function, backwards :: Function, infer_shape :: Function, list_outputs :: Function, list_arguments :: Function)
+    c_wrapper_fb = cfunction(_wrapper_fb, Void, (Cint, Ptr{Ptr{Cfloat}}, Ptr{Cint}, Ptr{Ptr{Cuint}}, Ptr{Cint}, Ptr{Void}))
+    c_wrapper_infer = cfunction(_wrapper_infer, Void, (Cint, Ptr{Cint}, Ptr{Ptr{Cuint}}, Ptr{Void}))
+    const c_wrapper_list = cfunction(_wrapper_list, Void, (Ptr{Ptr{Ptr{Cchar}}}, Ptr{Void}))
+
     p_f  = pointer_from_objref(forward)
     p_b  = pointer_from_objref(backwards)
     p_is = pointer_from_objref(infer_shape)
@@ -37,23 +41,17 @@ function _wrapper_fb(size :: Cint, data :: Ptr{Ptr{Cfloat}}, ndims :: Ptr{Cint},
   return nothing
 end
 
-const c_wrapper_fb = cfunction(_wrapper_fb, Void, (Cint, Ptr{Ptr{Cfloat}}, Ptr{Cint}, Ptr{Ptr{Cuint}}, Ptr{Cint}, Ptr{Void}))
-
 function _wrapper_infer(size :: Cint, ndims :: Ptr{Cint}, shapes :: Ptr{Ptr{Cuint}}, jf :: Ptr{Void})
   julia_function = unsafe_pointer_to_objref(jf) :: Function
   julia_function(Int(size), ndims, shapes)
   return nothing
 end
 
-const c_wrapper_infer = cfunction(_wrapper_infer, Void, (Cint, Ptr{Cint}, Ptr{Ptr{Cuint}}, Ptr{Void}))
-
 function _wrapper_list(data :: Ptr{Ptr{Ptr{Cchar}}}, jf :: Ptr{Void})
   julia_function = unsafe_pointer_to_objref(jf) :: Function
   julia_function(data)
   return nothing
 end
-
-const c_wrapper_list = cfunction(_wrapper_list, Void, (Ptr{Ptr{Ptr{Cchar}}}, Ptr{Void}))
 
 ###
 # Test entry functions
@@ -72,7 +70,6 @@ end
 function infer_entry(num_tensor :: Cint, tensor_dims :: Ptr{Cint}, tensor_shapes :: Ptr{Ptr{Cuint}})
 end
 
-# info = NativeOpInfo(fb_entry, fb_entry, infer_entry, list_entry, list_entry)
+create_info() = NativeOpInfo(fb_entry, fb_entry, infer_entry, list_entry, list_entry)
 # pstring = bytestring("0x", hex(reinterpret(UInt, pointer_from_objref(info))))
 # mx._Native(name = :test, info = pstring)
-
