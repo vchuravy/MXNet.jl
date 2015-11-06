@@ -31,11 +31,19 @@ immutable NativeOpInfo
 end
 
 ###
-# Each _wrapper_... is the entry point for the c function call that converts the opaque
-# pointer into the right julia function.
+# Each _wrapper_... is the entry point for the c function call.
+# It receives an opaque pointer to the correct entry function and
+# the function parameters. It then wraps the function parameters in the
+# correct immutable T <: _MXNET_DATA and creates an _Async object from it.
+# _Async reimplements and extends Base.SingleAsyncWork to also pass some data
+# and a Condition along. That condition is then used to synchronize
+# the _wrapper and _entry functions. If we wouldn't synchronize them the
+# _wrapper functions would return before the _entry functions have been run.
+# Returning illegal state to MXNet.
 ###
 abstract _MXNET_DATA
 
+# Based on Base.SingleAsyncWork
 immutable _Async{T <: _MXNET_DATA}
   data :: T
 
@@ -69,7 +77,7 @@ end
 function _wrapper_fb(size :: Cint, data :: Ptr{Ptr{Cfloat}}, ndims :: Ptr{Cint}, shapes :: Ptr{Ptr{Cuint}}, tags :: Ptr{Cint}, jf :: Ptr{Void})
   entry = unsafe_pointer_to_objref(jf) :: Function
   cb_data = _FB(size, data, ndims, shapes, tags)
-  work = _Async{_FB}(cb_data, entry)
+  work = _Async{_FB}(cb_data, entry) # We have to specify T here otherwise inference will run and seqfault.
   ccall(:uv_async_send, Void, (Ptr{Void},), work.handle)
   wait(work.cond)
   return nothing
