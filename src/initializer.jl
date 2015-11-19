@@ -152,3 +152,35 @@ function _init_weight(self :: XavierInitializer, name :: Base.Symbol, array :: N
 
   func(σ, array)
 end
+
+immutable BilinearInitializer <: AbstractInitializer
+end
+
+function _init_weight(self :: BilinearInitializer, name :: Base.Symbol, array :: NDArray)
+  dims = size(array) # (K, K, C, S)
+  @assert length(dims) == 4
+
+  width = dims[1]
+  height = dims[2]
+
+  @assert width == height
+
+  f = ceil(Int, width / 2) # factor
+  c = (2f - 1 - f % 2) / 2f # center
+
+  filter = Base.zeros(width, height)
+
+  for x in 0:(width-1)
+    for y in 0:(height-1)
+      filter[x+1, y+1] = (1 - abs(x / f - c)) * (1 - abs(y / f - c))
+    end
+  end
+
+  @nd_as_jl rw=array begin
+    for i in 1:dims[4] # Samples
+      for j in 1:dims[3] # Channel
+        array[:, :, j, i] = filter
+      end
+    end
+  end
+end
