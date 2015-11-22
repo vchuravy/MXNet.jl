@@ -83,7 +83,7 @@ end
    :param input_shapes: the shape of all data and label inputs to this model, given as keyword arguments.
                         For example, ``data=(28,28,1,100), label=(100,)``.
 =#
-function init_model(self :: FeedForward, initializer :: AbstractInitializer; overwrite::Bool=false, input_shapes...)
+function init_model(self :: FeedForward, initializer :: Union{AbstractInitializer, Dict}; overwrite::Bool=false, input_shapes...)
   # all arg names, including data, label, and parameters
   arg_names    = list_arguments(self.arch)
 
@@ -108,17 +108,30 @@ function init_model(self :: FeedForward, initializer :: AbstractInitializer; ove
 
   # initialize the contents of the parameters
   if !arg_defined || overwrite
-    for (k,v) in self.arg_params
-      initializer(k, v)
-    end
+    _initialize!(initializer, self.arg_params)
   end
+
   if !aux_defined || overwrite
-    for (k,v) in self.aux_params
-      initializer(k, v)
-    end
+    _initialize!(initializer, self.aux_params)
   end
 
   return (arg_names, param_names, aux_names)
+end
+
+function _initialize!(initializer :: AbstractInitializer, params)
+  for (k, v) in params
+    initializer(k, v)
+  end
+end
+
+function _initialize!(initializer :: Dict, params)
+  for (k, v) in params
+    if haskey(initializer, k)
+      initializer[k](k, v)
+    else
+      initializer[:default](k, v)
+    end
+  end
 end
 
 function _setup_predictor(self :: FeedForward, overwrite :: Bool=false; data_shapes...)
@@ -232,7 +245,7 @@ function predict(self :: FeedForward, data :: AbstractDataProvider; overwrite::B
   return output_arrays
 end
 
-function _init_model(self :: FeedForward, data :: AbstractDataProvider, initializer :: AbstractInitializer, overwrite :: Bool)
+function _init_model(self :: FeedForward, data :: AbstractDataProvider, initializer :: Union{AbstractInitializer, Dict}, overwrite :: Bool)
   init_model(self, initializer; overwrite=overwrite, [provide_data(data)..., provide_label(data)...]...)
 end
 
@@ -261,7 +274,7 @@ function _create_kvstore(kv_type :: Base.Symbol, num_device :: Int, arg_params :
 end
 
 @defstruct TrainingOptions Any (
-  initializer :: AbstractInitializer = UniformInitializer(0.01),
+  initializer :: Union{AbstractInitializer, Dict} = UniformInitializer(0.01),
   n_epoch     :: Int = 10,
   eval_data   :: Union{Void, AbstractDataProvider} = nothing,
   eval_metric :: AbstractEvalMetric = Accuracy(),
