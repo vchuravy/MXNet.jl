@@ -30,43 +30,15 @@ immutable NativeOpInfo
   end
 end
 
-###
-# Each _wrapper_... is the entry point for the c function call.
-# It receives an opaque pointer to the correct entry function and
-# the function parameters. It then wraps the function parameters in the
-# correct immutable T <: _MXNET_DATA and creates an _Async object from it.
-# _Async reimplements and extends Base.SingleAsyncWork to also pass some data
-# and a Condition along. That condition is then used to synchronize
-# the _wrapper and _entry functions. If we wouldn't synchronize them the
-# _wrapper functions would return before the _entry functions have been run.
-# Returning illegal state to MXNet.
-###
-abstract _MXNET_DATA
+##
+# Forward and backward can be called from different threads in libmxnet and
+# so we need to take special care in handling these callbacks correctly in
+# the julia runtime.
+##
 
-# Based on Base.SingleAsyncWork
-immutable _Async{T <: _MXNET_DATA}
-  data :: T
-
+# Callback struct for forward-backward
+immutable _FB
   handle :: Ptr{Void}
-  cb :: Function
-  cond :: Condition
-
-  function _Async(data :: T, cb::Function)
-    this = new(data, Libc.malloc(Base._sizeof_uv_async), cb, Condition())
-    Base.associate_julia_struct(this.handle, this)
-    Base.preserve_handle(this)
-
-    async_cb = cfunction(cb, Void, (Ptr{Void},))
-
-    err = ccall(:uv_async_init,Cint,(Ptr{Void},Ptr{Void},Ptr{Void}),Base.eventloop(),this.handle,async_cb::Ptr{Void})
-
-    this
-  end
-end
-
-Base._uv_hook_close(t::_Async) = (uv.handle = C_NULL; unpreserve_handle(uv); nothing)
-
-immutable _FB <: _MXNET_DATA
   size :: Cint
   data :: Ptr{Ptr{Cfloat}}
   ndims :: Ptr{Cint}
@@ -74,88 +46,34 @@ immutable _FB <: _MXNET_DATA
   tags :: Ptr{Cint}
 end
 
-function _wrapper_fb(size :: Cint, data :: Ptr{Ptr{Cfloat}}, ndims :: Ptr{Cint}, shapes :: Ptr{Ptr{Cuint}}, tags :: Ptr{Cint}, jf :: Ptr{Void})
-  entry = unsafe_pointer_to_objref(jf) :: Function
-  cb_data = _FB(size, data, ndims, shapes, tags)
-  work = _Async{_FB}(cb_data, entry) # We have to specify T here otherwise inference will run and seqfault.
-  ccall(:uv_async_send, Void, (Ptr{Void},), work.handle)
-  wait(work.cond)
-  return nothing
+@assert isbits(_FB)
+
+function _wrapper_fb(size :: Cint, data :: Ptr{Ptr{Cfloat}}, ndims :: Ptr{Cint}, shapes :: Ptr{Ptr{Cuint}}, tags :: Ptr{Cint}, payload :: Ptr{Void})
+  # Load the libuv async handle
+  ptr = convert(Ptr{_FB}, payload)
+  handle = unsafe_load(ptr, 1).handle
+
+  # Create result
+  val = _FB(handle, size, data, ndims, shapes, tags)
+  unsafe_store!(ptr, val, 1)
+
+  ccall(:uv_async_send, Void, (Ptr{Void},), handle)
+  nothing
 end
 
-immutable _INFER <: _MXNET_DATA
-  size :: Cint
-  ndims :: Ptr{Cint}
-  shapes :: Ptr{Ptr{Cuint}}
-end
-
+###
+# Infer and list are called in sync.
+###
 function _wrapper_infer(size :: Cint, ndims :: Ptr{Cint}, shapes :: Ptr{Ptr{Cuint}}, jf :: Ptr{Void})
   entry = unsafe_pointer_to_objref(jf) :: Function
-  cb_data = _INFER(size, ndims, shapes)
-  work = _Async{_INFER}(cb_data, entry)
-  ccall(:uv_async_send, Void, (Ptr{Void},), work.handle)
-  wait(work.cond)
+  entry(size, ndims, shapes)
   return nothing
 end
 
-immutable _LIST <: _MXNET_DATA
-  result :: Ptr{Ptr{Ptr{Cchar}}}
-end
-
-function _wrapper_list(data :: Ptr{Ptr{Ptr{Cchar}}}, jf :: Ptr{Void})
+function _wrapper_list(data :: Ptr{Ptr{Cstring}}, jf :: Ptr{Void})
   entry = unsafe_pointer_to_objref(jf) :: Function
-  cb_data = _LIST(data)
-  work = _Async{_LIST}(cb_data, entry)
-  ccall(:uv_async_send, Void, (Ptr{Void},), work.handle)
-  wait(work.cond)
+  entry(data)
   return nothing
-end
-
-###
-# Entry functions
-# These functions are now executed in the main Julia thread.
-###
-
-function list_entry(handle :: Ptr{Void})
-  work = Base.@handle_as handle _Async{_LIST}
-  try
-    data = ByteString[""]
-    ref = Base.cconvert(Ptr{Ptr{Cchar}}, data)
-    ptr = Base.unsafe_convert(Ptr{Ptr{Cchar}}, ref)
-    unsafe_store!(work.data.result, ptr,1)
-  catch
-  finally
-    notify(work.cond)
-  end
-  nothing
-end
-
-function fb_entry(handle :: Ptr{Void})
-  work = Base.@handle_as handle _Async{_FB}
-  try
-    data = work.data
-    # do data conversion
-    # call appropriate julia function
-    # store result
-  catch
-  finally
-    notify(work.cond)
-  end
-  nothing
-end
-
-function infer_entry(handle :: Ptr{Void})
-  work = Base.@handle_as handle _Async{_INFER}
-  try
-    data = work.data
-    # do data conversion
-    # call appropriate julia function
-    # store result
-  catch
-  finally
-    notify(work.cond)
-  end
-  nothing
 end
 
 create_info() = NativeOpInfo(fb_entry, fb_entry, infer_entry, list_entry, list_entry)
