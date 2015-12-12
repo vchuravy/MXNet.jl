@@ -1,3 +1,29 @@
+module Native
+
+abstract Operator
+
+function forward(:: Operator, in_data, out_data)
+  out_data[0][:] = in_data[0]
+end
+
+function backward(:: Operator, out_grad, in_data, out_data, in_grad)
+  in_grad[0][:] = 1.0
+end
+
+function infer_shape(:: Operator, in_shape)
+   return in_shape, [in_shape[0]]
+end
+
+function list_outputs(:: Operator)
+  return ["output"]
+end
+
+function list_arguments(:: Operator)
+  return ["data"]
+end
+
+need_top_grad(:: Operator) = true
+
 ###
 # NativeOpInfo mirrors the struct in include/mxnet/c_api.h and consists of five function
 # pointers that work as callbacks. Each p_... ia a opaque pointer that contains the
@@ -79,3 +105,4 @@ end
 create_info() = NativeOpInfo(fb_entry, fb_entry, infer_entry, list_entry, list_entry)
 # pstring = bytestring("0x", hex(reinterpret(UInt, pointer_from_objref(info))))
 # mx._Native(name = :test, info = pstring)
+end
