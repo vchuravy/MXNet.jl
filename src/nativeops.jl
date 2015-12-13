@@ -1,33 +1,65 @@
+#=doc
+Native operators in Julia
+=========================
+=#
 module Native
 
+#=doc
+.. class:: Operator
+
+   Abstract type user have to derive from to implement Operators in Julia
+=#
 abstract Operator
 
+#=doc
+.. function:: forward(op :: Operator, in_data, out_data)
+=#
 function forward(:: Operator, in_data, out_data)
   out_data[0][:] = in_data[0]
 end
 
+#=doc
+.. function:: backward(op :: Operator, out_grad, in_data, out_data, in_grad)
+=#
 function backward(:: Operator, out_grad, in_data, out_data, in_grad)
   in_grad[0][:] = 1.0
 end
 
+#=doc
+.. function:: infer_shape(op :: Operator, in_shape)
+=#
 function infer_shape(:: Operator, in_shape)
    return in_shape, [in_shape[0]]
 end
 
+#=doc
+.. function:: list_outputs(op :: Operator)
+=#
 function list_outputs(:: Operator)
   return ["output"]
 end
 
+#=doc
+.. function:: list_arguments(op :: Operator)
+=#
 function list_arguments(:: Operator)
   return ["data"]
 end
 
+#=doc
+.. function:: need_top_grad(op :: Operator)
+=#
 need_top_grad(:: Operator) = true
 
 ###
 # NativeOpInfo mirrors the struct in include/mxnet/c_api.h and consists of five function
 # pointers that work as callbacks. Each p_... ia a opaque pointer that contains the
 # necessary information to call the right function.
+#
+# Forward and backward functions call require more care because they can happen async, we
+# have to handle them in the task that wait for the functions to be called.
+#
+# Todo: Cleanup tasks.
 ###
 immutable NativeOpInfo
   forward :: Ptr{Void}
@@ -41,30 +73,38 @@ immutable NativeOpInfo
   p_list_outputs :: Ptr{Void}
   p_list_arguments :: Ptr{Void}
 
-  function NativeOpInfo(op :: Operator, forward, backward)
-    p_is, p_loa, p_la = pointer_from_objref(op)
+  function NativeOpInfo(op :: Operator)
+    # infer_shape, list_args, list_outputs are called directly and use dynamic dispatch,
+    # for finding the correct operator.
+    p_is, p_la, p_la = pointer_from_objref(op)
 
     c_wrapper_fb = cfunction(_wrapper_fb, Void, (Cint, Ptr{Ptr{Cfloat}}, Ptr{Cint}, Ptr{Ptr{Cuint}}, Ptr{Cint}, Ptr{Void}))
     c_wrapper_infer = cfunction(_wrapper_infer, Void, (Cint, Ptr{Cint}, Ptr{Ptr{Cuint}}, Ptr{Void}))
-    const c_wrapper_list = cfunction(_wrapper_list, Void, (Ptr{Ptr{Ptr{Cchar}}}, Ptr{Void}))
+    c_wrapper_list_outputs = cfunction(_wrapper_list_outputs, Void, (Ptr{Ptr{Ptr{Cchar}}}, Ptr{Void}))
+    c_wrapper_list_arguments = cfunction(_wrapper_list_arguments, Void, (Ptr{Ptr{Ptr{Cchar}}}, Ptr{Void}))
 
+    # Setting up for handling backward/forward. Each function has a condition for a task
+    # to wait on and a libuv callback that notifies that condition, to handle the call.
     cond_forward = Condition()
     cond_backward = Condition()
     cb_f = Base.SingleAsyncWork(data -> notify(cond_forward))
     cb_b = Base.SingleAsyncWork(data -> notify(cond_backward))
 
+    # The return value of the callbacks is stored in _FB and the first element is the
+    # libuv handle.
     r_forward = Ref(_FB(cb_f.handle))
     r_backward = Ref(_FB(cb_f.handle))
 
-    p_f  = convert(Ptr{Void}, r_forward)
-    p_f  = convert(Ptr{Void}, r_backward)
+    p_f = convert(Ptr{Void}, r_forward)
+    p_f = convert(Ptr{Void}, r_backward)
 
+    # Task for handling forward
     @schedule begin
       try
         while true
            wait(cond_forward)
            cond_forward = Condition()
-           _entry_forward(r_forward[])
+           _entry_forward(op, r_forward[])
         end
       catch
         rethrow()
@@ -73,12 +113,13 @@ immutable NativeOpInfo
       end
     end
 
+    # Task for handling backward
     @schedule begin
       try
         while true
            wait(cond_backward)
            cond_backward = Condition()
-           _entry_backward(r_backward[])
+           _entry_backward(op, r_backward[])
         end
       catch
         rethrow()
@@ -145,6 +186,9 @@ end
 _FB(handle :: Ptr{Void}) = _FP(handle, 0, 0, 0, 0, 0)
 @assert isbits(_FB)
 
+# This function is called async and because the Julia runtime is not thread safe, we are
+# very limited in the things we can do. Using a immutable that is a bitstype we can pass,
+# return values to the handling tasks.
 function _wrapper_fb(size :: Cint, data :: Ptr{Ptr{Cfloat}}, ndims :: Ptr{Cint}, shapes :: Ptr{Ptr{Cuint}}, tags :: Ptr{Cint}, payload :: Ptr{Void})
   # Load the libuv async handle
   ptr = convert(Ptr{_FB}, payload)
@@ -158,8 +202,14 @@ function _wrapper_fb(size :: Cint, data :: Ptr{Ptr{Cfloat}}, ndims :: Ptr{Cint},
   nothing
 end
 
+# Todo: handle the c callback and call the correct function
+function _entry_forward(:: Operator, payload :: _FB)
+end
 
-create_info() = NativeOpInfo(fb_entry, fb_entry, infer_entry, list_entry, list_entry)
+# Todo: handle the c callback and call the correct function
+function _entry_backward(:: Operator, payload :: _FB)
+end
+
 # pstring = bytestring("0x", hex(reinterpret(UInt, pointer_from_objref(info))))
 # mx._Native(name = :test, info = pstring)
 end
