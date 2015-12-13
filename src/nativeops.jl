@@ -48,8 +48,45 @@ immutable NativeOpInfo
     c_wrapper_infer = cfunction(_wrapper_infer, Void, (Cint, Ptr{Cint}, Ptr{Ptr{Cuint}}, Ptr{Void}))
     const c_wrapper_list = cfunction(_wrapper_list, Void, (Ptr{Ptr{Ptr{Cchar}}}, Ptr{Void}))
 
-    p_f  = pointer_from_objref(forward)
-    p_b  = pointer_from_objref(backwards)
+    cond_forward = Condition()
+    cond_backward = Condition()
+    cb_f = Base.SingleAsyncWork(data -> notify(cond_forward))
+    cb_b = Base.SingleAsyncWork(data -> notify(cond_backward))
+
+    r_forward = Ref(_FB(cb_f.handle))
+    r_backward = Ref(_FB(cb_f.handle))
+
+    p_f  = convert(Ptr{Void}, r_forward)
+    p_f  = convert(Ptr{Void}, r_backward)
+
+    @schedule begin
+      try
+        while true
+           wait(cond_forward)
+           cond_forward = Condition()
+           _entry_forward(r_forward[])
+        end
+      catch
+        rethrow()
+      finally
+        Base.close(cb_f)
+      end
+    end
+
+    @schedule begin
+      try
+        while true
+           wait(cond_backward)
+           cond_backward = Condition()
+           _entry_backward(r_backward[])
+        end
+      catch
+        rethrow()
+      finally
+        Base.close(cb_f)
+      end
+    end
+
     new(c_wrapper_fb, c_wrapper_fb, c_wrapper_infer, c_wrapper_list,
         c_wrapper_list, p_f, p_b, p_is, p_lo, p_la)
   end
@@ -105,7 +142,7 @@ immutable _FB
   shapes :: Ptr{Ptr{Cuint}}
   tags :: Ptr{Cint}
 end
-
+_FB(handle :: Ptr{Void}) = _FP(handle, 0, 0, 0, 0, 0)
 @assert isbits(_FB)
 
 function _wrapper_fb(size :: Cint, data :: Ptr{Ptr{Cfloat}}, ndims :: Ptr{Cint}, shapes :: Ptr{Ptr{Cuint}}, tags :: Ptr{Cint}, payload :: Ptr{Void})
