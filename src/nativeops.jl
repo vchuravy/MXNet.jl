@@ -247,12 +247,11 @@ function _entry_forward(op :: Operator, payload :: _FB)
 
   # Tags are zero-based
   for i in 1:num_ndarray
+    handle = MX_NDArrayHandle(ndarries[i])
     if tags[i] == 1
-      #tensors[tags[i]+1].append(NDArray(cast(ndarraies[i], NDArrayHandle),
-      #                                writable=True))
+      push!(tags[i] + 1, NDArray(handle, true))
     else
-      #tensors[tags[i]+1].append(NDArray(cast(ndarraies[i], NDArrayHandle),
-      #                                writable=False))
+      push!(tags[i] + 1, NDArray(handle, false))
     end
   end
   forward(op, tensors[1], tensors[2])
@@ -267,12 +266,11 @@ function _entry_backward(op :: Operator, payload :: _FB)
   tensors = [[] for i in 1:4]
 
   for i in 1:num_ndarray
+    handle = MX_NDArrayHandle(ndarries[i])
     if tags[i] == 2
-      #tensors[tags[i]+1].append(NDArray(cast(ndarraies[i], NDArrayHandle),
-      #                                writable=True))
+      push!(tags[i] + 1, NDArray(handle, true))
     else
-      #tensors[tags[i]+1].append(NDArray(cast(ndarraies[i], NDArrayHandle),
-      #                                writable=False))
+      push!(tags[i] + 1, NDArray(handle, false))
     end
   end
   backward(op, tensors[1], tensors[2], tensors[3], tensors[4])
