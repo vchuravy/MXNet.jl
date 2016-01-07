@@ -94,16 +94,16 @@ immutable NDArrayOpInfo
   p_list_arguments :: Ptr{Void}
   p_declare_backward_dependency :: Ptr{Void}
 
-  function NativeOpInfo(op :: Operator)
+  function NDArrayOpInfo(op :: Operator)
     # infer_shape, list_args, list_outputs are called directly and use dynamic dispatch,
     # for finding the correct operator.
-    p_is, p_la, p_la, p_dbd = pointer_from_objref(op)
+    p_is = p_lo = p_la = p_dbd = pointer_from_objref(op)
 
-    c_wrapper_fb = cfunction(_wrapper_fb, Void, (Cint, Ptr{Ptr{Void}}, Ptr{Cint}, Ptr{Void}))
-    c_wrapper_infer = cfunction(_wrapper_infer, Void, (Cint, Ptr{Cint}, Ptr{Ptr{Cuint}}, Ptr{Void}))
-    c_wrapper_list_outputs = cfunction(_wrapper_list_outputs, Void, (Ptr{Ptr{Ptr{Cchar}}}, Ptr{Void}))
-    c_wrapper_list_arguments = cfunction(_wrapper_list_arguments, Void, (Ptr{Ptr{Ptr{Cchar}}}, Ptr{Void}))
-    c_wrapper_declare_backward_dependency = cfunction(_wrapper_declare_backward_dependency, Cbool, Bool, (Ptr{Cint}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint}, Ptr{Ptr{Cint}}, Ptr{Void}))
+    c_wrapper_fb = cfunction(_wrapper_fb, Bool, (Cint, Ptr{Ptr{Void}}, Ptr{Cint}, Ptr{Void}))
+    c_wrapper_infer = cfunction(_wrapper_infer, Bool, (Cint, Ptr{Cint}, Ptr{Ptr{Cuint}}, Ptr{Void}))
+    c_wrapper_list_outputs = cfunction(_wrapper_list_outputs, Bool, (Ptr{Ptr{Ptr{Cchar}}}, Ptr{Void}))
+    c_wrapper_list_arguments = cfunction(_wrapper_list_arguments, Bool, (Ptr{Ptr{Ptr{Cchar}}}, Ptr{Void}))
+    c_wrapper_declare_backward_dependency = cfunction(_wrapper_declare_backward_dependency, Bool, (Ptr{Cint}, Ptr{Cint}, Ptr{Cint}, Ptr{Cint}, Ptr{Ptr{Cint}}, Ptr{Void}))
 
     # Setting up for handling backward/forward. Each function has a condition for a task
     # to wait on and a libuv callback that notifies that condition, to handle the call.
@@ -117,8 +117,8 @@ immutable NDArrayOpInfo
     r_forward = Ref(_FB(cb_f.handle))
     r_backward = Ref(_FB(cb_f.handle))
 
-    p_f = convert(Ptr{Void}, r_forward)
-    p_f = convert(Ptr{Void}, r_backward)
+    p_f = Base.unsafe_convert(Ptr{Void}, r_forward)
+    p_b = Base.unsafe_convert(Ptr{Void}, r_backward)
 
     # Task for handling forward
     @schedule begin
@@ -150,9 +150,9 @@ immutable NDArrayOpInfo
       end
     end
 
-    new(c_wrapper_fb, c_wrapper_fb, c_wrapper_infer, c_wrapper_list,
-        c_wrapper_list,  c_wrapper_declare_backward_dependency,
-        p_f, p_b, p_is, p_lo, p_la, p_dpd)
+    new(c_wrapper_fb, c_wrapper_fb, c_wrapper_infer, c_wrapper_list_outputs,
+        c_wrapper_list_arguments,  c_wrapper_declare_backward_dependency,
+        p_f, p_b, p_is, p_lo, p_la, p_dbd)
   end
 end
 
@@ -181,7 +181,7 @@ function _wrapper_infer(size :: Cint, ndims :: Ptr{Cint}, shapes :: Ptr{Ptr{Cuin
   return true
 end
 
-function _wrapper_list_arguments(data :: Ptr{Ptr{Cstring}}, _op :: Ptr{Void})
+function _wrapper_list_arguments(data :: Ptr{Ptr{Ptr{Cchar}}}, _op :: Ptr{Void})
   try
     op = unsafe_pointer_to_objref(_op) :: Operator
     arguments = list_arguments(op)
@@ -192,7 +192,7 @@ function _wrapper_list_arguments(data :: Ptr{Ptr{Cstring}}, _op :: Ptr{Void})
   return true
 end
 
-function _wrapper_list_outputs(data :: Ptr{Ptr{Cstring}}, _op :: Ptr{Void})
+function _wrapper_list_outputs(data :: Ptr{Ptr{Ptr{Cchar}}}, _op :: Ptr{Void})
   try
     op = unsafe_pointer_to_objref(_op) :: Operator
     outputs = list_outputs(op)
@@ -240,7 +240,7 @@ immutable _FB
   data :: Ptr{Ptr{Void}}
   tags :: Ptr{Cint}
 end
-_FB(handle :: Ptr{Void}) = _FP(handle, 0, 0, 0)
+_FB(handle :: Ptr{Void}) = _FB(handle, 0, 0, 0)
 @assert isbits(_FB)
 
 # This function is called async and because the Julia runtime is not thread safe, we are
