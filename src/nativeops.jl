@@ -181,28 +181,35 @@ function _wrapper_infer(size :: Cint, ndims :: Ptr{Cint}, shapes :: Ptr{Ptr{Cuin
   return true
 end
 
+# TODO: Lifetime of julia objects (GC!)
 function _wrapper_list_arguments(data :: Ptr{Ptr{Ptr{Cchar}}}, _op :: Ptr{Void})
   try
     op = unsafe_pointer_to_objref(_op) :: Operator
     arguments = list_arguments(op)
-    unsafe_store!(data, arguments)
+    ptrs = Ptr{Cchar}[Base.unsafe_convert(Ptr{Cchar}, arguments[i]) for i in eachindex(arguments)]
+    r_args = Ref(ptrs)
+    unsafe_store!(data,  Base.unsafe_convert(Ptr{Ptr{Cchar}}, r_args))
   catch
     return false
   end
   return true
 end
 
+# TODO: Lifetime of julia objects (GC!)
 function _wrapper_list_outputs(data :: Ptr{Ptr{Ptr{Cchar}}}, _op :: Ptr{Void})
   try
     op = unsafe_pointer_to_objref(_op) :: Operator
     outputs = list_outputs(op)
-    unsafe_store!(data, outputs)
+    ptrs = Ptr{Cchar}[Base.unsafe_convert(Ptr{Cchar}, outputs[i]) for i in eachindex(outputs)]
+    r_out = Ref(ptrs)
+    unsafe_store!(data, Base.unsafe_convert(Ptr{Ptr{Cchar}}, r_out))
   catch
     return false
   end
   return true
 end
 
+# TODO: Lifetime of julia objects (GC!)
 function _wrapper_declare_backward_dependency(_out_grad :: Ptr{Cint},
                                               _in_data  :: Ptr{Cint},
                                               _out_data :: Ptr{Cint},
