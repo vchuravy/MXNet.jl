@@ -3,6 +3,7 @@ Native operators in Julia
 =========================
 =#
 module Native
+import ..mx
 
 #=doc
 .. class:: Operator
@@ -294,18 +295,19 @@ end
 # Todo: handle the c callback and call the correct function
 function _entry_forward(op :: Operator, payload :: _FB)
   num_ndarray = payload.size
-  ndarraies =  pointer_to_array(payload.data, num_ndarray, false)
-  tags = pointer_to_array(payload.tags, num_ndarray, false)
+  ndarraies = payload.data
+  tags = payload.tags
 
-  tensors = [[] for i in 1:4]
+  tensors = [mx.NDArray[] for i in 1:4]
 
   # Tags are zero-based
   for i in 1:num_ndarray
-    handle = MX_NDArrayHandle(ndarries[i])
-    if tags[i] == 1
-      push!(tags[i] + 1, NDArray(handle, true))
+    handle = mx.MX_NDArrayHandle(unsafe_load(ndarraies, i))
+    tag = unsafe_load(tags, i)
+    if tag == 1
+      push!(tensors[tag + 1], mx.NDArray(handle, true))
     else
-      push!(tags[i] + 1, NDArray(handle, false))
+      push!(tensors[tag + 1], mx.NDArray(handle, false))
     end
   end
   forward(op, tensors[1], tensors[2])
@@ -314,17 +316,18 @@ end
 # Todo: handle the c callback and call the correct function
 function _entry_backward(op :: Operator, payload :: _FB)
   num_ndarray = payload.size
-  ndarraies =  pointer_to_array(payload.data, num_ndarray, false)
-  tags = pointer_to_array(payload.tags, num_ndarray, false)
+  ndarraies = payload.data
+  tags = payload.tags
 
   tensors = [[] for i in 1:4]
 
   for i in 1:num_ndarray
-    handle = MX_NDArrayHandle(ndarries[i])
-    if tags[i] == 2
-      push!(tags[i] + 1, NDArray(handle, true))
+    handle = mx.MX_NDArrayHandle(unsafe_load(ndarraies, i))
+    tag = unsafe_load(tags, i)
+    if tag == 2
+      push!(tensors[tag + 1], mx.NDArray(handle, true))
     else
-      push!(tags[i] + 1, NDArray(handle, false))
+      push!(tensors[tag + 1], mx.NDArray(handle, false))
     end
   end
   backward(op, tensors[1], tensors[2], tensors[3], tensors[4])
