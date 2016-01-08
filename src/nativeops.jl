@@ -29,7 +29,7 @@ end
 .. function:: infer_shape(op :: Operator, in_shape)
 =#
 function infer_shape(:: Operator, in_shape)
-   return in_shape, [in_shape[0]]
+   return (in_shape, ), ([in_shape[0]], )
 end
 
 #=doc
@@ -159,7 +159,7 @@ end
 ###
 # Infer and list are called in sync.
 ###
-function _wrapper_infer(size :: Cint, ndims :: Ptr{Cint}, shapes :: Ptr{Ptr{Cuint}}, _op :: Ptr{Void})
+function _wrapper_infer(size :: Cint, ndims :: Ptr{Cint}, tensor_shapes :: Ptr{Ptr{Cuint}}, _op :: Ptr{Void})
   try
     op = unsafe_pointer_to_objref(_op) :: Operator
 
@@ -167,15 +167,33 @@ function _wrapper_infer(size :: Cint, ndims :: Ptr{Cint}, shapes :: Ptr{Ptr{Cuin
     n_out = length(list_outputs(op))
     @assert size == n_in + n_out
 
-    shapes = [[tensor_shapes[i][j] for j in 1:tensor_dims[i]] for i in 1:n_in]
+    shapes = Vector{Cuint}[]
+    for i in 1:n_in
+      # Get size of array and create julia array.
+      jj = unsafe_load(ndims, i)
+      r_shapes = zeros(Cuint, jj)
+      # Get pointer to array
+      tshapes = unsafe_load(tensor_shapes, i)
+      # Copy values
+      for j in 1:jj
+        r_shapes[j] = unsafe_load(tshapes, j)
+      end
+      push!(shapes, r_shapes)
+    end
 
     ishape, oshape = infer_shape(op, shapes)
     @assert length(ishape) == n_in
     @assert length(oshape) == n_out
 
-    rshape = cat(ishape, oshape)
-    unsafe_store!(shapes, rshapes)
-  catch
+    rshapes = Vector{Cuint}[ishape..., oshape...]
+
+    for i in 1:size
+      unsafe_store!(tensor_shapes, pointer(rshapes[i]), i)
+      unsafe_store!(ndims, length(rshapes[i]), i)
+    end
+  catch error
+    println(STDERR, "Error in infer_shape: ")
+    showerror(STDERR, error)
     return false
   end
   return true
@@ -186,11 +204,13 @@ function _wrapper_list_arguments(data :: Ptr{Ptr{Ptr{Cchar}}}, _op :: Ptr{Void})
   try
     op = unsafe_pointer_to_objref(_op) :: Operator
     arguments = list_arguments(op)
-    push!(arguments, "")
-    ptrs = Ptr{Cchar}[Base.unsafe_convert(Ptr{Cchar}, arguments[i]) for i in eachindex(arguments)]
+    ptrs = Ptr{Cchar}[Base.unsafe_convert(Ptr{Cchar}, s) for s in arguments]
+    push!(ptrs, C_NULL)
     r_args = Ref(ptrs)
-    unsafe_store!(data,  Base.unsafe_convert(Ptr{Ptr{Cchar}}, r_args))
-  catch
+    unsafe_store!(data,  Base.unsafe_convert(Ptr{Ptr{Cchar}}, r_args), 1)
+  catch error
+    println(STDERR, "Error in list_arguments: ")
+    showerror(STDERR, error)
     return false
   end
   return true
@@ -201,11 +221,13 @@ function _wrapper_list_outputs(data :: Ptr{Ptr{Ptr{Cchar}}}, _op :: Ptr{Void})
   try
     op = unsafe_pointer_to_objref(_op) :: Operator
     outputs = list_outputs(op)
-    push!(outputs, "")
-    ptrs = Ptr{Cchar}[Base.unsafe_convert(Ptr{Cchar}, outputs[i]) for i in eachindex(outputs)]
+    ptrs = Ptr{Cchar}[Base.unsafe_convert(Ptr{Cchar}, s) for s in outputs]
+    push!(ptrs, C_NULL)
     r_out = Ref(ptrs)
-    unsafe_store!(data, Base.unsafe_convert(Ptr{Ptr{Cchar}}, r_out))
-  catch
+    unsafe_store!(data, Base.unsafe_convert(Ptr{Ptr{Cchar}}, r_out), 1)
+  catch error
+    println(STDERR, "Error in list_outputs: ")
+    showerror(STDERR, error)
     return false
   end
   return true
@@ -218,22 +240,23 @@ function _wrapper_declare_backward_dependency(_out_grad :: Ptr{Cint},
                                               num_dep  :: Ptr{Cint},
                                               deps     :: Ptr{Ptr{Cint}},
                                               _op      :: Ptr{Void})
-   try
-     op = unsafe_pointer_to_objref(_op) :: Operator
+  try
+    op = unsafe_pointer_to_objref(_op) :: Operator
+    out_grad = pointer_to_array(_out_grad, length(list_outputs(op)), false)
+    in_data = pointer_to_array(_in_data, length(list_arguments(op)), false)
+    out_data = pointer_to_array(_out_data, length(list_outputs(op)), false)
 
-     out_grad = pointer_to_array(_out_grad, length(list_outputs(op)), false)
-     in_data = pointer_to_array(_in_data, length(list_arguments(op)), false)
-     out_data = pointer_to_array(_out_data, length(list_outputs(op)), false)
+    rdeps = convert(Array{Cint}, declare_backward_dependency(op, out_grad, in_data, out_data))
 
-     rdeps = convert(Array{Cint}, declare_backward_dependency(out_grad, in_data, out_data))
-
-     unsafe_store!(num_dep, length(rdeps), 1)
-     r_rdeps = Ref(rdeps) # Lifetime?
-     unsafe_store!(deps, convert(Ptr{Cint}, r_rdeps), 1)
-   catch
-     return false
-   end
-   return true
+    unsafe_store!(num_dep, length(rdeps), 1)
+    r_rdeps = Ref(rdeps) # Lifetime?
+    unsafe_store!(deps, Base.unsafe_convert(Ptr{Cint}, r_rdeps), 1)
+  catch error
+    println(STDERR, "Error in declare_backward_dependecy: ")
+    showerror(STDERR, error)
+    return false
+  end
+  return true
 end
 
 ##
@@ -307,6 +330,4 @@ function _entry_backward(op :: Operator, payload :: _FB)
   backward(op, tensors[1], tensors[2], tensors[3], tensors[4])
 end
 
-# pstring = bytestring("0x", hex(reinterpret(UInt, pointer_from_objref(info))))
-# mx._Native(name = :test, info = pstring)
 end

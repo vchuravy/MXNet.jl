@@ -10,9 +10,9 @@ need_top_grad(:: JuliaSoftmax) = false
 
 function infer_shape(::JuliaSoftmax, in_shape)
   data_shape = in_shape[1]
-  label_shape = (in_shape[1][1],)
+  label_shape = [in_shape[1][1]]
   output_shape = in_shape[1]
-  return [data_shape, label_shape], [output_shape]
+  return (data_shape, label_shape), (output_shape, )
 end
 
 function forward(::JuliaSoftmax, in_data, out_data)
@@ -48,7 +48,7 @@ fc3 = mx.FullyConnected(data = act2, name="fc3", num_hidden=10)
 mysoftmax = JuliaSoftmax()
 info = mx.Native.NDArrayOpInfo(mysoftmax)
 pstring = bytestring("0x", hex(reinterpret(UInt, pointer_from_objref(info))))
-mlp = mx._Native(name = "softmax", info = pstring, data=fc3)
+mlp = mx._NDArray(name = "softmax", info = pstring, data=fc3)
 
 model = mx.FeedForward(mlp, context = mx.cpu())
 optimizer = mx.SGD(lr = 0.1, momentum = 0.9, weight_decay = 0.00001)
