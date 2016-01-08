@@ -186,6 +186,7 @@ function _wrapper_list_arguments(data :: Ptr{Ptr{Ptr{Cchar}}}, _op :: Ptr{Void})
   try
     op = unsafe_pointer_to_objref(_op) :: Operator
     arguments = list_arguments(op)
+    push!(arguments, "")
     ptrs = Ptr{Cchar}[Base.unsafe_convert(Ptr{Cchar}, arguments[i]) for i in eachindex(arguments)]
     r_args = Ref(ptrs)
     unsafe_store!(data,  Base.unsafe_convert(Ptr{Ptr{Cchar}}, r_args))
@@ -200,6 +201,7 @@ function _wrapper_list_outputs(data :: Ptr{Ptr{Ptr{Cchar}}}, _op :: Ptr{Void})
   try
     op = unsafe_pointer_to_objref(_op) :: Operator
     outputs = list_outputs(op)
+    push!(outputs, "")
     ptrs = Ptr{Cchar}[Base.unsafe_convert(Ptr{Cchar}, outputs[i]) for i in eachindex(outputs)]
     r_out = Ref(ptrs)
     unsafe_store!(data, Base.unsafe_convert(Ptr{Ptr{Cchar}}, r_out))
