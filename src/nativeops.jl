@@ -3,7 +3,7 @@ Native operators in Julia
 =========================
 =#
 module Native
-import ..mx
+import ..mx: NDArray
 
 #=doc
 .. class:: Operator
@@ -13,24 +13,32 @@ import ..mx
 abstract Operator
 
 #=doc
-.. function:: forward(op :: Operator, in_data, out_data)
+.. function:: forward(op :: Operator, in_data :: Vector{NDArray}, out_data :: Vector{NDArray})
 =#
-function forward(op :: Operator, in_data, out_data)
+function forward(op :: Operator, in_data :: Vector{NDArray}, out_data :: Vector{NDArray})
   throw(MethodError(forward, (op, in_data, out_data)))
 end
 
 #=doc
-.. function:: backward(op :: Operator, out_grad, in_data, out_data, in_grad)
+.. function:: backward(op :: Operator, out_grad :: Vector{NDArray}, in_data :: Vector{NDArray}, out_data :: Vector{NDArray}, in_grad :: Vector{NDArray})
 =#
-function backward(op :: Operator, out_grad, in_data, out_data, in_grad)
+function backward(op :: Operator, out_grad :: Vector{NDArray}, in_data :: Vector{NDArray}, out_data :: Vector{NDArray}, in_grad :: Vector{NDArray})
   throw(MethodError(backward, (op, out_grad, in_data, out_data, in_grad)))
 end
 
 #=doc
-.. function:: infer_shape(op :: Operator, in_shape)
+.. function:: infer_shape(op :: Operator, in_shapes :: Vector{Vector{UInt32}})
+
+   Calculates the shapes of input and output.
+
+   Returns two tuples of shapes. One for the inputs and one for the outputs.
+   `return (data_shape, label_shape), (out_shape, )`. Shapes are stored as
+   vectors of unsigned integers.
+
+   :param in_shapes: Current shapes of inputs.
 =#
-function infer_shape(op :: Operator, shapes :: Vector{Vector{Cuint}})
-  throw(MethodError(infer_shape, (op, shapes)))
+function infer_shape(op :: Operator, in_shapes :: Vector{Vector{UInt32}})
+  throw(MethodError(infer_shape, (op, in_shapes)))
 end
 
 #=doc
@@ -53,13 +61,13 @@ end
 need_top_grad(:: Operator) = true
 
 #=doc
-.. function:: declare_backward_dependency(op :: Operator, out_grad, in_data, out_data)
+.. function:: declare_backward_dependency(op :: Operator, out_grad :: Vector{Int32}, in_data :: Vector{Int32}, out_data :: Vector{Int32})
 
   Declare dependencies of this operator for backward pass.
 
   Return value needs to be an integer array.
 =#
-function declare_backward_dependency(op :: Operator, out_grad, in_data, out_data)
+function declare_backward_dependency(op :: Operator, out_grad :: Vector{Int32}, in_data :: Vector{Int32}, out_data :: Vector{Int32})
   deps = Int[]
   if need_top_grad(op)
     append!(deps, out_grad)
@@ -244,11 +252,11 @@ function _wrapper_declare_backward_dependency(_out_grad :: Ptr{Cint},
                                               _op      :: Ptr{Void})
   try
     op = unsafe_pointer_to_objref(_op) :: Operator
-    out_grad = pointer_to_array(_out_grad, length(list_outputs(op)), false)
-    in_data = pointer_to_array(_in_data, length(list_arguments(op)), false)
-    out_data = pointer_to_array(_out_data, length(list_outputs(op)), false)
+    out_grad = pointer_to_array(_out_grad, length(list_outputs(op)), false) :: Vector{Int32}
+    in_data = pointer_to_array(_in_data, length(list_arguments(op)), false) :: Vector{Int32}
+    out_data = pointer_to_array(_out_data, length(list_outputs(op)), false) :: Vector{Int32}
 
-    rdeps = convert(Array{Cint}, declare_backward_dependency(op, out_grad, in_data, out_data))
+    rdeps = declare_backward_dependency(op, out_grad, in_data, out_data) :: Vector{Int32}
 
     unsafe_store!(num_dep, length(rdeps), 1)
     r_rdeps = Ref(rdeps) # Lifetime?
@@ -299,16 +307,16 @@ function _entry_forward(op :: Operator, payload :: _FB)
   ndarraies = payload.data
   tags = payload.tags
 
-  tensors = [mx.NDArray[] for i in 1:4]
+  tensors = [NDArray[] for i in 1:4]
 
   # Tags are zero-based
   for i in 1:num_ndarray
     handle = mx.MX_NDArrayHandle(unsafe_load(ndarraies, i))
     tag = unsafe_load(tags, i)
     if tag == 1
-      push!(tensors[tag + 1], mx.NDArray(handle, true))
+      push!(tensors[tag + 1], NDArray(handle, true))
     else
-      push!(tensors[tag + 1], mx.NDArray(handle, false))
+      push!(tensors[tag + 1], NDArray(handle, false))
     end
   end
   forward(op, tensors[1], tensors[2])
@@ -320,15 +328,15 @@ function _entry_backward(op :: Operator, payload :: _FB)
   ndarraies = payload.data
   tags = payload.tags
 
-  tensors = [[] for i in 1:4]
+  tensors = [NDArray[] for i in 1:4]
 
   for i in 1:num_ndarray
     handle = mx.MX_NDArrayHandle(unsafe_load(ndarraies, i))
     tag = unsafe_load(tags, i)
     if tag == 2
-      push!(tensors[tag + 1], mx.NDArray(handle, true))
+      push!(tensors[tag + 1], NDArray(handle, true))
     else
-      push!(tensors[tag + 1], mx.NDArray(handle, false))
+      push!(tensors[tag + 1], NDArray(handle, false))
     end
   end
   backward(op, tensors[1], tensors[2], tensors[3], tensors[4])

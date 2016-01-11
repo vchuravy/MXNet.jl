@@ -8,14 +8,14 @@ list_arguments(:: JuliaSoftmax) = ["data", "label"]
 list_outputs(:: JuliaSoftmax) = ["output"]
 need_top_grad(:: JuliaSoftmax) = false
 
-function infer_shape(::JuliaSoftmax, in_shape)
-  data_shape = in_shape[1]
-  label_shape = [in_shape[1][1]]
-  output_shape = in_shape[1]
+function infer_shape(::JuliaSoftmax, in_shapes :: Vector{Vector{UInt32}})
+  data_shape = in_shapes[1]
+  label_shape = [last(data_shape)]
+  output_shape = data_shape
   return (data_shape, label_shape), (output_shape, )
 end
 
-function forward(::JuliaSoftmax, in_data, out_data)
+function forward(::JuliaSoftmax, in_data :: Vector{mx.NDArray}, out_data :: Vector{mx.NDArray})
   x = in_data[1]
   y = out_data[1]
 
@@ -26,7 +26,7 @@ function forward(::JuliaSoftmax, in_data, out_data)
 end
 
 #TODO: Correct gradient
-function backward(::JuliaSoftmax, out_grad, in_data, out_data, in_grad)
+function backward(::JuliaSoftmax, out_grad :: Vector{mx.NDArray}, in_data :: Vector{mx.NDArray}, out_data :: Vector{mx.NDArray}, in_grad :: Vector{mx.NDArray})
   label = in_data[2]
   y = out_data[1]
   dx = in_grad[1]
