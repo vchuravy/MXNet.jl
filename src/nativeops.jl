@@ -3,6 +3,7 @@ Native operators in Julia
 =========================
 =#
 module Native
+import ..mx
 import ..mx: NDArray
 
 #=doc
