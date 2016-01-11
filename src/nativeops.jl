@@ -177,7 +177,7 @@ function _wrapper_infer(size :: Cint, ndims :: Ptr{Cint}, tensor_shapes :: Ptr{P
       tshapes = unsafe_load(tensor_shapes, i)
       # Copy values
       for j in 1:jj
-        r_shapes[j] = unsafe_load(tshapes, j)
+        r_shapes[j] = unsafe_load(tshapes, jj - (j-1)) # reverse Shapes.
       end
       push!(shapes, r_shapes)
     end
@@ -189,6 +189,7 @@ function _wrapper_infer(size :: Cint, ndims :: Ptr{Cint}, tensor_shapes :: Ptr{P
     rshapes = Vector{Cuint}[ishape..., oshape...]
 
     for i in 1:size
+      reverse!(rshapes[i]) # reverse shapes back
       unsafe_store!(tensor_shapes, pointer(rshapes[i]), i)
       unsafe_store!(ndims, length(rshapes[i]), i)
     end
