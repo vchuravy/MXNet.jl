@@ -15,22 +15,22 @@ abstract Operator
 #=doc
 .. function:: forward(op :: Operator, in_data, out_data)
 =#
-function forward(:: Operator, in_data, out_data)
-  out_data[0][:] = in_data[0]
+function forward(op :: Operator, in_data, out_data)
+  throw(MethodError(forward, (op, in_data, out_data)))
 end
 
 #=doc
 .. function:: backward(op :: Operator, out_grad, in_data, out_data, in_grad)
 =#
-function backward(:: Operator, out_grad, in_data, out_data, in_grad)
-  in_grad[0][:] = 1.0
+function backward(op :: Operator, out_grad, in_data, out_data, in_grad)
+  throw(MethodError(backward, (op, out_grad, in_data, out_data, in_grad)))
 end
 
 #=doc
 .. function:: infer_shape(op :: Operator, in_shape)
 =#
-function infer_shape(:: Operator, in_shape)
-   return (in_shape, ), ([in_shape[0]], )
+function infer_shape(op :: Operator, shapes :: Vector{Vector{Cuint}})
+  throw(MethodError(infer_shape, (op, shapes)))
 end
 
 #=doc
