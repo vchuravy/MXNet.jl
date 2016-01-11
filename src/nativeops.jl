@@ -68,7 +68,7 @@ need_top_grad(:: Operator) = true
   Return value needs to be an integer array.
 =#
 function declare_backward_dependency(op :: Operator, out_grad :: Vector{Int32}, in_data :: Vector{Int32}, out_data :: Vector{Int32})
-  deps = Int[]
+  deps = Int32[]
   if need_top_grad(op)
     append!(deps, out_grad)
   end
@@ -264,7 +264,7 @@ function _wrapper_declare_backward_dependency(_out_grad :: Ptr{Cint},
     in_data = pointer_to_array(_in_data, length(list_arguments(op)), false) :: Vector{Int32}
     out_data = pointer_to_array(_out_data, length(list_outputs(op)), false) :: Vector{Int32}
 
-    rdeps = declare_backward_dependency(op, out_grad, in_data, out_data) :: Vector{Int32}
+    rdeps = convert(Vector{Cint}, declare_backward_dependency(op, out_grad, in_data, out_data))
 
     unsafe_store!(num_dep, length(rdeps), 1)
     r_rdeps = Ref(rdeps) # Lifetime?
