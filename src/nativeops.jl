@@ -191,14 +191,21 @@ function _wrapper_infer(size :: Cint, ndims :: Ptr{Cint}, tensor_shapes :: Ptr{P
       push!(shapes, r_shapes)
     end
 
-    ishape, oshape = infer_shape(op, shapes)
-    @assert length(ishape) == n_in
-    @assert length(oshape) == n_out
+    ishapes, oshapes = infer_shape(op, shapes)
+    @assert length(ishapes) == n_in
+    @assert length(oshapes) == n_out
 
-    rshapes = Vector{Cuint}[ishape..., oshape...]
+    # We need to create copies of the array to prevent accidentally
+    # calling reverse! twice.
+    rshapes = Vector{Cuint}[] # Memory lifetime!
+    for shape in ishapes
+      push!(rshapes, reverse(shape))
+    end
+    for shape in oshapes
+      push!(rshapes, reverse(shape))
+    end
 
     for i in 1:size
-      reverse!(rshapes[i]) # reverse shapes back
       unsafe_store!(tensor_shapes, pointer(rshapes[i]), i)
       unsafe_store!(ndims, length(rshapes[i]), i)
     end
