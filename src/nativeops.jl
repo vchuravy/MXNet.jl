@@ -13,6 +13,12 @@ import ..mx: NDArray
 =#
 abstract Operator
 
+function Base.call(op :: Operator; kwargs...)
+  info = NDArrayOpInfo(op)
+  pstring = bytestring("0x", hex(reinterpret(UInt, pointer_from_objref(info))))
+  mx._NDArray(info = pstring; kwargs...)
+end
+
 #=doc
 .. function:: forward(op :: Operator, in_data :: Vector{NDArray}, out_data :: Vector{NDArray})
 =#

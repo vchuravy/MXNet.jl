@@ -46,9 +46,7 @@ fc3 = mx.FullyConnected(data = act2, name="fc3", num_hidden=10)
 
 # Setup Native operator
 mysoftmax = JuliaSoftmax()
-info = mx.Native.NDArrayOpInfo(mysoftmax)
-pstring = bytestring("0x", hex(reinterpret(UInt, pointer_from_objref(info))))
-mlp = mx._NDArray(name = "softmax", info = pstring, data=fc3)
+mlp = mysoftmax(name = "softmax", data=fc3)
 
 model = mx.FeedForward(mlp, context = mx.cpu())
 optimizer = mx.SGD(lr = 0.1, momentum = 0.9, weight_decay = 0.00001)
