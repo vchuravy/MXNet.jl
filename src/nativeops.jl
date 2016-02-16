@@ -13,9 +13,25 @@ import ..mx: NDArray
 =#
 abstract Operator
 
+const storage = WeakKeyDict{Operator, Any}()
+
+function _finalizer(op::Operator)
+  delete!(storage, op)
+end
+
+function _store(op::Operator, x)
+  storage[op] = x
+end
+_haskey(op::Operator) = haskey(storage, op)
+
 function Base.call(op :: Operator; kwargs...)
+  !_haskey(op) && finalizer(op, _finalizer)
+
   info = NDArrayOpInfo(op)
-  pstring = bytestring("0x", hex(reinterpret(UInt, pointer_from_objref(info))))
+  _store(op, info)
+
+  r_info = Ref(info)
+  @show pstring = bytestring("0x", hex(reinterpret(UInt, Base.unsafe_convert(Ptr{Void}, r_info))))
   mx._NDArray(info = pstring; kwargs...)
 end
 
@@ -95,7 +111,7 @@ end
 #
 # Todo: Cleanup tasks.
 ###
-immutable NDArrayOpInfo
+type NDArrayOpInfo
   forward :: Ptr{Void}
   backward :: Ptr{Void}
   infer_shape :: Ptr{Void}

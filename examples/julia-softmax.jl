@@ -2,7 +2,7 @@ using MXNet
 
 import MXNet.mx.Native: Operator, list_arguments, list_outputs, infer_shape,
                         forward, backward, need_top_grad
-immutable JuliaSoftmax <: Operator end
+type JuliaSoftmax <: Operator end
 
 list_arguments(:: JuliaSoftmax) = ["data", "label"]
 list_outputs(:: JuliaSoftmax) = ["output"]
