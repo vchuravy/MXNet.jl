@@ -147,7 +147,7 @@ type NDArrayOpInfo
     # The return value of the callbacks is stored in _FB and the first element is the
     # libuv handle.
     r_forward = Ref(_FB(cb_f.handle))
-    r_backward = Ref(_FB(cb_f.handle))
+    r_backward = Ref(_FB(cb_b.handle))
 
     p_f = Base.unsafe_convert(Ptr{Void}, r_forward)
     p_b = Base.unsafe_convert(Ptr{Void}, r_backward)
