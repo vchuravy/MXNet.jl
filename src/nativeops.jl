@@ -31,7 +31,7 @@ function Base.call(op :: Operator; kwargs...)
   _store(op, info)
 
   r_info = Ref(info)
-  @show pstring = bytestring("0x", hex(reinterpret(UInt, Base.unsafe_convert(Ptr{Void}, r_info))))
+  pstring = bytestring("0x", hex(reinterpret(UInt, Base.unsafe_convert(Ptr{Void}, r_info))))
   mx._NDArray(info = pstring; kwargs...)
 end
 
@@ -346,6 +346,8 @@ function _entry_forward(op :: Operator, payload :: _FB)
     tag = unsafe_load(tags, i)
     if tag == 1
       push!(tensors[tag + 1], NDArray(handle, true))
+    elseif !(0 <= tag < 4)
+      error("Received incorrect tag: $tag")
     else
       push!(tensors[tag + 1], NDArray(handle, false))
     end
@@ -366,6 +368,8 @@ function _entry_backward(op :: Operator, payload :: _FB)
     tag = unsafe_load(tags, i)
     if tag == 2
       push!(tensors[tag + 1], NDArray(handle, true))
+    elseif !(0 <= tag < 4)
+      error("Received incorrect tag: $tag")
     else
       push!(tensors[tag + 1], NDArray(handle, false))
     end
