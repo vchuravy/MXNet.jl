@@ -26,7 +26,7 @@ function _store(op::Operator, x)
 end
 _haskey(op::Operator) = haskey(storage, op)
 
-function Base.call(op :: Operator; kwargs...)
+function create_op(op :: Operator; kwargs...)
   !_haskey(op) && finalizer(op, _finalizer)
 
   info = NDArrayOpInfo(op)
@@ -151,8 +151,8 @@ type NDArrayOpInfo
 
     # The return value of the callbacks is stored in _FB and the first element is the
     # libuv handle.
-    r_forward = Ref(_FB(cb_f.handle, m_fentry, b_fexit))
-    r_backward = Ref(_FB(cb_b.handlem m_bentry, m_bexit))
+    r_forward = Ref(_FB(Base.unsafe_convert(Ptr{Void}, f_cond), m_fentry, b_fexit))
+    r_backward = Ref(_FB(Base.unsafe_convert(Ptr{Void}, b_cond), m_bentry, b_bexit))
 
     p_f = Base.unsafe_convert(Ptr{Void}, r_forward)
     p_b = Base.unsafe_convert(Ptr{Void}, r_backward)
@@ -163,11 +163,13 @@ type NDArrayOpInfo
         while true
            wait(f_cond)
            # do we meed to replace the AsyncCondition?
+           info("Hey!")
            _entry_forward(op, r_forward[])
            RawMutex.unlock(m_fentry)
-           RawMutex.wait(b_fexit)
+           #RawMutex.wait(b_fexit)
         end
-      catch
+      catch err
+        @show err
         rethrow()
       finally
         Base.close(f_cond)
@@ -183,12 +185,12 @@ type NDArrayOpInfo
            wait(b_cond)
            _entry_backward(op, r_backward[])
            RawMutex.unlock(m_bentry)
-           RawMutex.wait(b_bexit)
+       #    RawMutex.wait(b_bexit)
         end
       catch
         rethrow()
       finally
-        Base.close(cb_f)
+        Base.close(b_cond)
         RawMutex.close_mutex(m_bentry)
         RawMutex.close_barrier(b_bexit)
       end
@@ -295,9 +297,9 @@ function _wrapper_declare_backward_dependency(_out_grad :: Ptr{Cint},
                                               _op      :: Ptr{Void})
   try
     op = unsafe_pointer_to_objref(_op) :: Operator
-    out_grad = pointer_to_array(_out_grad, length(list_outputs(op)), false) :: Vector{Int32}
-    in_data = pointer_to_array(_in_data, length(list_arguments(op)), false) :: Vector{Int32}
-    out_data = pointer_to_array(_out_data, length(list_outputs(op)), false) :: Vector{Int32}
+    out_grad = unsafe_wrap(Array, _out_grad, length(list_outputs(op)), false)
+    in_data = unsafe_wrap(Array, _in_data, length(list_arguments(op)), false)
+    out_data = unsafe_wrap(Array, _out_data, length(list_outputs(op)), false)
 
     rdeps = convert(Vector{Cint}, declare_backward_dependency(op, out_grad, in_data, out_data))
 
@@ -349,7 +351,7 @@ function _wrapper_fb(size :: Cint, data :: Ptr{Ptr{Void}}, tags :: Ptr{Cint}, pa
 
   ccall(:uv_async_send, Void, (Ptr{Void},), handle)
   # Now block on b_exit
-  RawMutex.wait(b_exit)
+  # RawMutex.wait(b_exit)
 
   return true # Better solution?
 end
@@ -369,7 +371,7 @@ function _entry_forward(op :: Operator, payload :: _FB)
     if tag == 1
       push!(tensors[tag + 1], NDArray(handle, true))
     elseif !(0 <= tag < 4)
-      error("Received incorrect tag: $tag")
+      error("Received incorrect tag: $tag for handle: $handle")
     else
       push!(tensors[tag + 1], NDArray(handle, false))
     end
@@ -391,7 +393,7 @@ function _entry_backward(op :: Operator, payload :: _FB)
     if tag == 2
       push!(tensors[tag + 1], NDArray(handle, true))
     elseif !(0 <= tag < 4)
-      error("Received incorrect tag: $tag")
+      error("Received incorrect tag: $tag for handle $handle")
     else
       push!(tensors[tag + 1], NDArray(handle, false))
     end

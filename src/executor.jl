@@ -164,7 +164,9 @@ function forward(self :: Executor; is_train::Bool=false, kwargs...)
     copy!(self.arg_dict[k], v)
   end
 
-  @mxcall(:MXExecutorForward, (MX_handle, Cint), self, is_train)
+  println("Forward")
+  @mxthreadcall(:MXExecutorForward, (MX_handle, Cint), self, is_train)
+  println("Forward")
 end
 
 function backward(self :: Executor)
@@ -175,7 +177,9 @@ function backward(self :: Executor, out_grad :: NDArray)
 end
 function backward(self :: Executor, out_grads :: Vector{NDArray})
   out_grads = MX_handle[out_grads...]
-  @mxcall(:MXExecutorBackward, (MX_handle, MX_uint, Ptr{MX_handle}), self, length(out_grads), out_grads)
+  println("Backward")
+  @mxthreadcall(:MXExecutorBackward, (MX_handle, MX_uint, Ptr{MX_handle}), self, length(out_grads), out_grads)
+  println("Backward")
 end
 
 

@@ -1,8 +1,10 @@
 using MXNet
 
 import MXNet.mx.Native: Operator, list_arguments, list_outputs, infer_shape,
-                        forward, backward, need_top_grad
+                        forward, backward, need_top_grad, create_op
 type JuliaSoftmax <: Operator end
+
+(op::JuliaSoftmax)(;kwargs...) = create_op(op;kwargs...)
 
 list_arguments(:: JuliaSoftmax) = ["data", "label"]
 list_outputs(:: JuliaSoftmax) = ["output"]
@@ -16,6 +18,7 @@ function infer_shape(::JuliaSoftmax, in_shapes :: Vector{Vector{UInt32}})
 end
 
 function forward(::JuliaSoftmax, in_data :: Vector{mx.NDArray}, out_data :: Vector{mx.NDArray})
+  info("Entering forward")
   x = in_data[1]
   y = out_data[1]
 
@@ -23,10 +26,12 @@ function forward(::JuliaSoftmax, in_data :: Vector{mx.NDArray}, out_data :: Vect
     y[:] = exp(x - maximum(x, 1))
     y /= sum(y, 1)
   end
+  info("Leaving forward")
 end
 
 #TODO: Correct gradient
 function backward(::JuliaSoftmax, out_grad :: Vector{mx.NDArray}, in_data :: Vector{mx.NDArray}, out_data :: Vector{mx.NDArray}, in_grad :: Vector{mx.NDArray})
+  info("Entering backward")
   label = in_data[2]
   y = out_data[1]
   dx = in_grad[1]
@@ -34,6 +39,7 @@ function backward(::JuliaSoftmax, out_grad :: Vector{mx.NDArray}, in_data :: Vec
   @mx.nd_as_jl ro=(label, y) rw=dx begin
     dx[:] = y
   end
+  info("Leaving backward")
 end
 
 #define mlp
