@@ -162,9 +162,9 @@ type NDArrayOpInfo
       try
         while true
            wait(f_cond)
-           RawMutex.unlock(m_fentry)
            # do we meed to replace the AsyncCondition?
            _entry_forward(op, r_forward[])
+           RawMutex.unlock(m_fentry)
            RawMutex.wait(b_fexit)
         end
       catch
@@ -180,9 +180,9 @@ type NDArrayOpInfo
     @schedule begin
       try
         while true
-           wait(f_cond)
-           RawMutex.unlock(m_bentry)
+           wait(b_cond)
            _entry_backward(op, r_backward[])
+           RawMutex.unlock(m_bentry)
            RawMutex.wait(b_bexit)
         end
       catch
