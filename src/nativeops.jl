@@ -6,6 +6,8 @@ module Native
 import ..mx
 import ..mx: NDArray
 
+import RawMutex
+
 #=doc
 .. class:: Operator
 
@@ -139,15 +141,18 @@ type NDArrayOpInfo
 
     # Setting up for handling backward/forward. Each function has a condition for a task
     # to wait on and a libuv callback that notifies that condition, to handle the call.
-    cond_forward = Condition()
-    cond_backward = Condition()
-    cb_f = Base.SingleAsyncWork(data -> notify(cond_forward))
-    cb_b = Base.SingleAsyncWork(data -> notify(cond_backward))
+    f_cond = Base.AsyncCondition()
+    m_fentry = RawMutex.create_mutex()
+    b_fexit = RawMutex.create_barrier(2)
+
+    b_cond = Base.AsyncCondition()
+    m_bentry = RawMutex.create_mutex()
+    b_bexit = RawMutex.create_barrier(2)
 
     # The return value of the callbacks is stored in _FB and the first element is the
     # libuv handle.
-    r_forward = Ref(_FB(cb_f.handle))
-    r_backward = Ref(_FB(cb_b.handle))
+    r_forward = Ref(_FB(cb_f.handle, m_fentry, b_fexit))
+    r_backward = Ref(_FB(cb_b.handlem m_bentry, m_bexit))
 
     p_f = Base.unsafe_convert(Ptr{Void}, r_forward)
     p_b = Base.unsafe_convert(Ptr{Void}, r_backward)
@@ -156,14 +161,18 @@ type NDArrayOpInfo
     @schedule begin
       try
         while true
-           wait(cond_forward)
-           cond_forward = Condition()
+           wait(f_cond)
+           RawMutex.unlock(m_fentry)
+           # do we meed to replace the AsyncCondition?
            _entry_forward(op, r_forward[])
+           RawMutex.wait(b_fexit)
         end
       catch
         rethrow()
       finally
-        Base.close(cb_f)
+        Base.close(f_cond)
+        RawMutex.close_mutex(m_fentry)
+        RawMutex.close_barrier(b_fexit)
       end
     end
 
@@ -171,14 +180,17 @@ type NDArrayOpInfo
     @schedule begin
       try
         while true
-           wait(cond_backward)
-           cond_backward = Condition()
+           wait(f_cond)
+           RawMutex.unlock(m_bentry)
            _entry_backward(op, r_backward[])
+           RawMutex.wait(b_bexit)
         end
       catch
         rethrow()
       finally
         Base.close(cb_f)
+        RawMutex.close_mutex(m_bentry)
+        RawMutex.close_barrier(b_bexit)
       end
     end
 
@@ -309,11 +321,13 @@ end
 # Callback struct for forward-backward
 immutable _FB
   handle :: Ptr{Void}
+  m_entry :: RawMutex.Mutex
+  b_exit :: RawMutex.Barrier
   size :: Cint
   data :: Ptr{Ptr{Void}}
   tags :: Ptr{Cint}
 end
-_FB(handle :: Ptr{Void}) = _FB(handle, 0, 0, 0)
+_FB(handle :: Ptr{Void}, m_entry, b_exit) = _FB(handle,m_entry, b_exit, 0, 0, 0)
 @assert isbits(_FB)
 
 # This function is called async and because the Julia runtime is not thread safe, we are
@@ -323,12 +337,20 @@ function _wrapper_fb(size :: Cint, data :: Ptr{Ptr{Void}}, tags :: Ptr{Cint}, pa
   # Load the libuv async handle
   ptr = convert(Ptr{_FB}, payload)
   handle = unsafe_load(ptr, 1).handle
+  m_entry = unsafe_load(ptr, 1).m_entry
+  b_exit = unsafe_load(ptr, 1).b_exit
+
+  # lock the hard part
+  RawMutex.lock(m_entry)
 
   # Create result
-  val = _FB(handle, size, data, tags)
+  val = _FB(handle, m_entry, b_exit, size, data, tags)
   unsafe_store!(ptr, val, 1)
 
   ccall(:uv_async_send, Void, (Ptr{Void},), handle)
+  # Now block on b_exit
+  RawMutex.wait(b_exit)
+
   return true # Better solution?
 end
 
