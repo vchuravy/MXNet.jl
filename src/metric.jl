@@ -167,11 +167,9 @@ function _update_single_output(metric :: ACE, label :: NDArray, pred :: NDArray)
       for sample in 1:size(labels, 4)
         for j in 1:size(labels, 2)
           for i in 1:size(labels, 1)
-            label = labels[i, j, 1, sample]
-
             # Cross-entropy reduces to -(ln(p_1)*0 + ln(p_2)*1) for classification
             # Since we can only target labels right now this is the only thing we can do.
-            target = Int(label) + 1 # klasses are 0...k-1 => julia indexing
+            target = Int(labels[i, j, 1, sample]) + 1 # klasses are 0...k-1 => julia indexing
             p_k = pred[i, j, target, sample]
 
             metric.ace_sum += log(p_k)
@@ -181,8 +179,7 @@ function _update_single_output(metric :: ACE, label :: NDArray, pred :: NDArray)
       end
     elseif ndims(pred) == 2 # 1-dimensional case
       for sample in 1:size(labels, 1)
-        label = labels[sample]
-        target = Int(label) + 1
+        target = Int(labels[sample]) + 1
         p_k = pred[target, sample]
         metric.ace_sum += log(p_k)
         metric.n_sample += 1
@@ -229,11 +226,9 @@ function _update_single_output(metric :: MultiACE, label :: NDArray, pred :: NDA
       for sample in 1:size(labels, 4)
         for j in 1:size(labels, 2)
           for i in 1:size(labels, 1)
-            label = labels[i, j, 1, sample]
-
             # Cross-entropy reduces to -(ln(p_1)*0 + ln(p_2)*1) for classification
             # Since we can only target labels right now this is the only thing we can do.
-            target = Int(label) + 1 # klasses are 0...k-1 => julia indexing
+            target = Int(labels[i, j, 1, sample]) + 1 # klasses are 0...k-1 => julia indexing
             p_k = pred[i, j, target, sample]
 
             metric.aces[target] += log(p_k)
