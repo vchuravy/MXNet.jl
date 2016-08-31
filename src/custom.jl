@@ -84,5 +84,6 @@ function declare_backward_dependency(self :: CustomOpProp, out_grad, in_data, ou
   append!(deps, out_data)
 end
 
-include("_impl_custom.jl")
+include("_custom_prop.jl")
+include("_custom_impl.jl")
 end
