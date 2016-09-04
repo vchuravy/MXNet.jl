@@ -37,7 +37,7 @@ end
 function _finalizer(op :: CustomOpProp)
   if haskey(__prop_pinned_memory)
     delete!(__prop_pinned_memory, op)
-  else
+  end
 end
 
 function _delete_entry(payload :: Ptr{Void})

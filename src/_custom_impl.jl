@@ -7,6 +7,26 @@ immutable CustomOpInfo
   p_forward :: Ptr{Void}
   p_backward :: Ptr{Void}
   p_delete :: Ptr{Void}
+
+  function CustomOpInfo(op :: Operator)
+     c_wrapper_fb = cfunction(_wrapper_fb, Bool, (Cint, Ptr{Ptr{Void}}, Ptr{Ptr{Cint}}, Ptr{Void}))
+     p_f = _create_entry(op, _forward_entry)
+     p_b = _create_entry(op, _backward_entry)
+     new(c_wrapper_fb, c_wrapper_fb, C_NULL, p_f, p_b, C_NULL)
+  end
+end
+
+const __op_pinned_memory{Operator, Vector{Any}}()
+function _pin!(op :: Operator, x :: ANY)
+  xs = get(__op_pinned_memory, op, Any[])
+  push!(xs, x)
+  __op_pinned_memory[op] = xs
+end
+
+function _finalizer(op :: Operator)
+  if haskey(__op_pinned_memory)
+    delete!(__op_pinned_memory, op)
+  end
 end
 
 ##
@@ -44,4 +64,38 @@ function _wrapper_fb(size :: Cint, data :: Ptr{Ptr{Void}}, tags :: Ptr{Cint}, pa
   ccall(:uv_async_send, Void, (Ptr{Void},), handle)
 
   return true # Better solution?
+end
+
+function _forward_entry(op :: Operator, payload :: _FB)
+  info("Forward entry function")
+end
+
+function _backward_entry(op :: Operator, payload :: _FB)
+  info("Backward entry function")
+end
+
+function _create_entry(op:: Operator, _entry :: Function)
+  cond = Base.AsyncCondition()
+  m_entry = RawMutex.create_mutex()
+
+  ref = Ref(_FB(Base.unsafe_convert(Ptr{Void}, cond), m_entry))
+  ptr = Base.unsafe_convert(Ptr{Void}, ref)
+
+  task = @schedule begin
+    try
+      while true
+         wait(cond) # Do we need to replace the AsyncCondition?
+         _entry(op, ref[])
+         RawMutex.unlock(m_entry)
+      end
+    catch err
+      @show err
+      rethrow()
+    finally
+      Base.close(cond)
+      RawMutex.close_mutex(m_enrty)
+    end
+  end
+  _pin!(op, task)
+  return ptr
 end
