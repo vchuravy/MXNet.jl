@@ -37,18 +37,20 @@ end
 immutable _FB
   handle :: Ptr{Void}
   m_entry :: RawMutex.Mutex
-  size :: Cint
-  data :: Ptr{Ptr{Void}}
+  num_ndarray :: Cint
+  ndarries :: Ptr{Ptr{Void}}
   tags :: Ptr{Cint}
+  reqs :: Ptr{Cint}
+  is_train :: Bool
 end
 
-_FB(handle :: Ptr{Void}, m_entry) = _FB(handle,m_entry, 0, 0, 0)
+_FB(handle :: Ptr{Void}, m_entry) = _FB(handle,m_entry, 0, 0, 0, 0, 0)
 @assert isbits(_FB)
 
 # This function is called async and because the Julia runtime is not thread safe, we are
 # very limited in the things we can do. Using a immutable that is a bitstype we can pass,
 # return values to the handling tasks.
-function _wrapper_fb(size :: Cint, data :: Ptr{Ptr{Void}}, tags :: Ptr{Cint}, payload :: Ptr{Void})
+function _wrapper_fb(num_ndarray :: Cint, ndarries :: Ptr{Ptr{Void}}, tags :: Ptr{Cint}, reqs :: Ptr{Cint}, is_train :: Bool, payload :: Ptr{Void})
   # Load the libuv async handle
   ptr = convert(Ptr{_FB}, payload)
   handle = unsafe_load(ptr, 1).handle
@@ -58,7 +60,7 @@ function _wrapper_fb(size :: Cint, data :: Ptr{Ptr{Void}}, tags :: Ptr{Cint}, pa
   RawMutex.lock(m_entry)
 
   # Create result
-  val = _FB(handle, m_entry, b_exit, size, data, tags)
+  val = _FB(handle, m_entry, b_exit, num_ndarray, ndarries, tags, reqs, is_train)
   unsafe_store!(ptr, val, 1)
 
   ccall(:uv_async_send, Void, (Ptr{Void},), handle)
@@ -68,10 +70,58 @@ end
 
 function _forward_entry(op :: Operator, payload :: _FB)
   info("Forward entry function")
+  num_ndarray = payload.num_ndarray
+  ndarries = unsafe_wrap(Array, payload.ndarries, num_ndarray)
+  tags     = unsafe_wrap(Array, payload.tags, num_ndarray)
+  reqs     = unsafe_wrap(Array, payload.reqs, num_ndarray)
+  is_train = payload.is_train
+
+  in_data = NDArray[]
+  out_data = NDArray[]
+  aux = NDArray[]
+  for (ndarray, tag) in zip(ndarries, tags)
+    handle = mx.MX_NDArrayHandle(ndarray)
+    if tag == 1 || tag == 4
+      tensors = tag == 1 ? out_data : aux
+      push!(tensors, NDArray(handle, true))
+    elseif tag == 0
+      push!(in_data, NDArray(handle, false))
+    else
+      error("Received incorrect tag: $tag for handle $handle")
+    end
+  end
+  @show reqs
+  req = reqs # TODO: map to symbols
+  forward(op, is_train, req, in_data, out_data, aux)
 end
 
 function _backward_entry(op :: Operator, payload :: _FB)
   info("Backward entry function")
+  num_ndarray = payload.num_ndarray
+  ndarries = unsafe_wrap(Array, payload.ndarries, num_ndarray)
+  tags     = unsafe_wrap(Array, payload.tags, num_ndarray)
+  reqs     = unsafe_wrap(Array, payload.reqs, num_ndarray)
+
+  in_data = NDArray[]
+  out_data = NDArray[]
+  in_grad = NDArray[]
+  out_grad = NDArray[]
+  aux = NDArray[]
+  for (ndarray, tag) in zip(ndarries, tags)
+    handle = mx.MX_NDArrayHandle(ndarray)
+    if tag == 2 || tag == 4
+      tensors = tag == 2 ? in_grad : aux
+      push!(tensors, NDArray(handle, true))
+    elseif tag == 0 || tag == 1 || tag == 3
+      tensors = tag == 0 ? in_data :
+                tag == 1 ? out_data : out_grad
+      push!(tensors, NDArray(handle, false))
+    else
+      error("Received incorrect tag: $tag for handle $handle")
+    end
+  end
+  req = copy(req) # TODO: convert
+  backward(op, req, in_data, out_data, in_grad, out_grad, aux)
 end
 
 function _create_entry(op:: Operator, _entry :: Function)
