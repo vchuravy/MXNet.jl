@@ -68,6 +68,20 @@ function _wrapper_fb(num_ndarray :: Cint, ndarries :: Ptr{Ptr{Void}}, tags :: Pt
   return true # Better solution?
 end
 
+function _req_enum(req)
+  if req == 0
+    return :null
+  elseif req == 1
+    return :write
+  elseif req == 2
+    return :inplace
+  elseif req == 3
+    return :add
+  else
+    error("Don't know req value $req")
+  end
+end
+
 function _forward_entry(op :: Operator, payload :: _FB)
   info("Forward entry function")
   num_ndarray = payload.num_ndarray
@@ -90,8 +104,7 @@ function _forward_entry(op :: Operator, payload :: _FB)
       error("Received incorrect tag: $tag for handle $handle")
     end
   end
-  @show reqs
-  req = reqs # TODO: map to symbols
+  req = map(_reg_enum, reqs)
   forward(op, is_train, req, in_data, out_data, aux)
 end
 
@@ -120,7 +133,7 @@ function _backward_entry(op :: Operator, payload :: _FB)
       error("Received incorrect tag: $tag for handle $handle")
     end
   end
-  req = copy(req) # TODO: convert
+  req = map(_reg_enum, reqs)
   backward(op, req, in_data, out_data, in_grad, out_grad, aux)
 end
 
